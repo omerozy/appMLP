@@ -9,11 +9,6 @@ nnfs.init()
 X, y = spiral_data(100, 3)
 X = np.array(X).T
 
-#X =    [   [1,     2,      3,      2.5 ],
-#           [2,     5,      -1,     2   ],
-#           [-1.5,  2.7,    3.3,    -0.8] ]
-
-#X = np.array(X).T
 class layerDense:
     def __init__(self, numNeurons, numInputs):
         self.weights = 0.1*np.random.randn(numNeurons, numInputs)
