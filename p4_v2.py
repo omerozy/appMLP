@@ -15,7 +15,7 @@ class layerDense:
     def forward(self, inputs):
         self.output = np.dot(self.weights, inputs) + self.biases
 
-layer1 = layerDense(5, 4)
+layer1 = layerDense(5, 4) 
 layer2 = layerDense(2, 5)
 
 layer1.forward(X)
