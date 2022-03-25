@@ -26,9 +26,8 @@ class loss:
         sampleLosses = self.forward(output, y)
         dataLoss = np.mean(sampleLosses)
         return dataLoss
-
-class lossCatEnt(loss):                               # categorical cross-entropy
-    def forward(self, yPred, yTrue):
+class lossCatEnt(loss):                         # categorical cross-entropy
+    def forward(self, yPred, yTrue):            # https://www.youtube.com/watch?v=levekYbxauw&list=PLQVvvaa0QuDcjD5BAw2DxE6OF2tius3V3&index=8
         samples = np.shape(yPred)[1]
         yPredClip = np.clip(yPred, 1e-7, 1-1e-7)        
         if len(yTrue.shape) == 1:
@@ -56,7 +55,7 @@ act1.forward(layer1.output)
 layer2.forward(act1.output)
 act2.forward(layer2.output)
 
-pprint.pprint(act2.output[0:3, 0:6])
+pprint.pprint(act2.output[0:3, 0:3])
 
 lossFunc = lossCatEnt()
 loss = lossFunc.calculate(act2.output, y)
