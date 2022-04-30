@@ -22,7 +22,7 @@ layer2.forward(act1.output)
 act2.forward(layer2.output)
 
 # calculate loss of outputs for given results
-lossFunc = loss()
+lossFunc = lossCatCrossEnt()
 loss = lossFunc.calculate(act2.output, y)
 
 # 
