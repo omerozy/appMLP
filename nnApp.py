@@ -5,79 +5,124 @@ X, y = spiral_data(samples=100, classes=3)
 X = np.array(X).T
 y = np.array(y).T
 
+#
+l = [64, 3]
+numOptStep = 10000
+
+#
+layerList = []
+actList = []
+numLayers = len(l)
+lossMin = 10
+stepMin = 1
 # define layer properties (weigths, biases, activation functions)
-# hidden layers
-layer1 = layerDense(3, 2)   
-act1 = actReLu()
+for layerIdx in range(numLayers):   # hidden layers
+    if layerIdx == 0:
+        layer = layerDense(l[layerIdx], 2)   
+        act = actReLu()
 
-# output layer
-layer2 = layerDense(3, 3)
-act2 = actSoftmax()
+        layerList.append(layer)
+        actList.append(act)
+    elif layerIdx == range(numLayers)[-1]:  # output layer
+        layer = layerDense(l[layerIdx], l[layerIdx - 1])   
+        act = actSoftmax()
 
-for i in range(1700):
-    # give input and take output
-    layer1.forward(X)
-    act1.forward(layer1.output)
+        layerList.append(layer)
+        actList.append(act)
+    else:
+        layer = layerDense(l[layerIdx], l[layerIdx - 1])   
+        act = actReLu()
 
-    layer2.forward(act1.output)
-    act2.forward(layer2.output)
+        layerList.append(layer)
+        actList.append(act)
 
-    # calculate loss of outputs for given results
-    lossFunc = lossCatCrossEnt()
-    loss = lossFunc.calculate(act2.output, y)
+lossFunc = lossCatCrossEnt()
+for optStepIdx in range(numOptStep):
+    # forward
+    for layerIdx in range(numLayers):
+        if layerIdx == 0:
+            layerList[layerIdx].forward(X)
+            actList[layerIdx].forward(layerList[layerIdx].output)
+        else:
+            layerList[layerIdx].forward(actList[layerIdx - 1].output)
+            actList[layerIdx].forward(layerList[layerIdx].output)
+    loss = lossFunc.calculate(actList[-1].output, y)
+    if lossMin > loss:
+        stepMin = optStepIdx
+        lossMin = loss 
+        layerMin = layerList.copy()
+        actMin = actList.copy()
+    print(str(loss) + " " + str(optStepIdx))
+    
+    # backward
+    lossFunc.backward(actList[-1].output, y)
+    dvalues = lossFunc.dinputs
+    for layerIdx in reversed(range(numLayers)):
+        actList[layerIdx].backward(dvalues)
+        dvalues = actList[layerIdx].dinputs
+        layerList[layerIdx].backward(dvalues)
+        dvalues = layerList[layerIdx].dinputs
+        layerList[layerIdx].weights += -layerList[layerIdx].dweights
+        layerList[layerIdx].biases += -layerList[layerIdx].dbiases
 
-    # backpropogate
-    lossFunc.backward(act2.output, y)
-    dvalues1 = lossFunc.dinputs
-
-    act2.backward(dvalues1)
-    dvalues2 = act2.dinputs
-
-    layer2.backward(dvalues2)
-    dweightslayer2 = layer2.dweights
-    dbiaseslayer2 = layer2.dbiases
-    dvalues3 = layer2.dinputs
-
-    act1.backward(dvalues3)
-    dvalues4 = act1.dinputs
-
-    layer1.backward(dvalues4)
-    dweightslayer1 = layer1.dweights
-    dbiaseslayer1 = layer1.dbiases
-
-    # update weights and biases
-    layer1.weights = np.subtract(layer1.weights, layer1.dweights)
-    layer1.biases = np.subtract(layer1.biases, layer1.biases)
-
-    layer2.weights = np.subtract(layer2.weights, layer2.dweights)
-    layer2.biases = np.subtract(layer2.biases, layer2.biases)
-
-    # give input and take output
-    layer1.forward(X)
-    act1.forward(layer1.output)
-
-    layer2.forward(act1.output)
-    act2.forward(layer2.output)
-
-    # calculate loss of outputs for given results
-    lossFunc = lossCatCrossEnt()
-    loss = lossFunc.calculate(act2.output, y)
-    print(str(loss) + "     " + str(i))
 #######################################################
+print(" ")
 print("POST-PROCESS") 
-print("Loss:", loss)
+print("Min. Loss: " + str(lossMin) + " found in step " + str(stepMin))
 
 print(y[0:5])
-print(act2.output[:, 0:5])
+print(actList[-1].output[:, 0:5])
 
-print(dvalues1[:, 0:5])
-print(dvalues2[:, 0:5])
-print(dweightslayer2[:, 0:5])
-print(dbiaseslayer2[:, 0:5])
-print(dvalues3[:, 0:5])
-print(dvalues4[:, 0:5])
-print(dweightslayer1[:, 0:5])
-print(dbiaseslayer1[:, 0:5])
+redCode = np.array([255, 0, 0])/255
+greenCode = np.array([0, 128, 0])/255
+blueCode = np.array([0, 0, 255])/255
 
-plt.scatter(X[0], X[1])
-#plt.show()
+plt.figure(1)
+yPred = np.argmax(actMin[-1].output, axis=0, keepdims=True)
+for pointIdx in range(X.shape[1]):
+    if  yPred[0][pointIdx] == 0:
+        plt.scatter(X[0][pointIdx], X[1][pointIdx], color=blueCode)
+    elif  yPred[0][pointIdx] == 1:
+        plt.scatter(X[0][pointIdx], X[1][pointIdx], color=greenCode)
+    elif  yPred[0][pointIdx] == 2:
+        plt.scatter(X[0][pointIdx], X[1][pointIdx], color=redCode)
+plt.title("Estimation")
+
+plt.figure(2)
+for pointIdx in range(X.shape[1]):
+    if  y[pointIdx] == 0:
+        plt.scatter(X[0][pointIdx], X[1][pointIdx], color=blueCode)
+    elif  y[pointIdx] == 1:
+        plt.scatter(X[0][pointIdx], X[1][pointIdx], color=greenCode)
+    elif  y[pointIdx] == 2:
+        plt.scatter(X[0][pointIdx], X[1][pointIdx], color=redCode)
+plt.title("Reference Data")
+
+def NN(X, layerList, actList):
+    for layerIdx in range(len(layerList)):
+            if layerIdx == 0:
+                layerList[layerIdx].forward(X)
+                actList[layerIdx].forward(layerList[layerIdx].output)
+            else:
+                layerList[layerIdx].forward(actList[layerIdx - 1].output)
+                actList[layerIdx].forward(layerList[layerIdx].output)
+    return actList[-1].output
+
+x1Range = np.arange(-1.5, 1.5, 10e-3)
+x2Range = np.arange(-1.5, 1.5, 10e-3)
+z = np.ones([len(x1Range), len(x2Range), 3])
+x1Idx = 0
+for x1 in x1Range:
+    x2Idx = 0
+    for x2 in x2Range:
+        xSample = np.array([[x1, x2]]).T
+        yPred = NN(xSample, layerList, actList)
+        colorCode = blueCode*yPred[0] + greenCode*yPred[1] + redCode*yPred[2]
+        z[x1Idx, x2Idx, :] = colorCode
+        x2Idx += 1
+    x1Idx += 1
+print(z.shape)    
+plt.figure(2)
+plt.imshow(z, extent=[x1Range.min(), x1Range.max(), x2Range.min(), x2Range.max()], alpha=0.5)
+
+plt.show()
