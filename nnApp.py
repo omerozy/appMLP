@@ -1,5 +1,39 @@
 from nnObjs import *
 
+class network:
+    def __init__(self, layerList, actList):
+        self.layerList = layerList.copy()
+        self.actList = actList.copy()
+        self.numLayer = len(self.layerList)
+    def forward(self, X):
+        for layerIdx in range(self.numLayer):
+            if layerIdx == 0:
+                self.layerList[layerIdx].forward(X)
+                self.actList[layerIdx].forward(self.layerList[layerIdx].output)
+            elif layerIdx != range(self.numLayer)[-1]:
+                self.layerList[layerIdx].forward(self.actList[layerIdx - 1].output)
+                self.actList[layerIdx].forward(self.layerList[layerIdx].output)
+            elif layerIdx == range(self.numLayer)[-1]:
+                self.layerList[layerIdx].forward(self.actList[layerIdx - 1].output)
+                self.actList[layerIdx].forward(self.layerList[layerIdx].output)
+                yPred = self.actList[layerIdx].output
+                self.yPred = yPred
+    def calculateLoss(self, yTrue):
+            self.actList[-1].calculateLoss(yTrue)
+            self.loss = self.actList[-1].lossValue
+            acc = np.mean(np.argmax(self.yPred, axis = 0, keepdims=True) == yTrue)
+            self.acc = acc
+    def backward(self, yTrue):
+        self.actList[-1].backward(self.actList[-1].output, yTrue)
+        dvalues = self.actList[-1].dinputs
+        self.layerList[-1].backward(dvalues)
+        dvalues = self.layerList[-1].dinputs
+        for layerIdx in reversed(range(0, self.numLayer - 1)):
+            self.actList[layerIdx].backward(dvalues)
+            dvalues = self.actList[layerIdx].dinputs
+            self.layerList[layerIdx].backward(dvalues)
+            dvalues = self.layerList[layerIdx].dinputs
+
 # define input
 X, y = spiral_data(samples=100, classes=3)
 X = np.array(X).T
@@ -15,8 +49,11 @@ actList = []
 numLayers = len(l)
 lossMin = 10
 stepMin = 1
+accMax = -1
+optimizer = optimizerAdam(initialLearningRate=0.02, decay=1e-5)
+
 # define layer properties (weigths, biases, activation functions)
-for layerIdx in range(numLayers):   # hidden layers
+for layerIdx in range(numLayers):   # first layer
     if layerIdx == 0:
         layer = layerDense(l[layerIdx], 2)   
         act = actReLu()
@@ -25,60 +62,55 @@ for layerIdx in range(numLayers):   # hidden layers
         actList.append(act)
     elif layerIdx == range(numLayers)[-1]:  # output layer
         layer = layerDense(l[layerIdx], l[layerIdx - 1])   
-        act = actSoftmax()
+        act = SoftmaxCategorical()
 
         layerList.append(layer)
         actList.append(act)
-    else:
+    else:                                   # other layers
         layer = layerDense(l[layerIdx], l[layerIdx - 1])   
         act = actReLu()
 
         layerList.append(layer)
         actList.append(act)
 
-lossFunc = lossCatCrossEnt()
+# optimization steps
 for optStepIdx in range(numOptStep):
-    # forward
-    for layerIdx in range(numLayers):
-        if layerIdx == 0:
-            layerList[layerIdx].forward(X)
-            actList[layerIdx].forward(layerList[layerIdx].output)
-        else:
-            layerList[layerIdx].forward(actList[layerIdx - 1].output)
-            actList[layerIdx].forward(layerList[layerIdx].output)
-    loss = lossFunc.calculate(actList[-1].output, y)
-    if lossMin > loss:
+    NN = network(layerList, actList)
+    NN.forward(X)
+    NN.calculateLoss(y)
+
+    if lossMin > NN.loss:
+        lossMin = NN.loss
         stepMin = optStepIdx
-        lossMin = loss 
-        layerMin = layerList.copy()
-        actMin = actList.copy()
-    print(str(loss) + " " + str(optStepIdx))
-    
-    # backward
-    lossFunc.backward(actList[-1].output, y)
-    dvalues = lossFunc.dinputs
+        networkMinLoss = network(layerList.copy(), actList.copy())
+
+    print(f"step: {optStepIdx}    " + f"acc: {NN.acc:.4f}    " + f"loss: {NN.loss:.4f}    " + f"lr: {optimizer.learningRate:.4f}")
+
+    NN.backward(y)    
+
+    # execute optimizer
+    optimizer.updateLearningRate()
     for layerIdx in reversed(range(numLayers)):
-        actList[layerIdx].backward(dvalues)
-        dvalues = actList[layerIdx].dinputs
-        layerList[layerIdx].backward(dvalues)
-        dvalues = layerList[layerIdx].dinputs
-        layerList[layerIdx].weights += -layerList[layerIdx].dweights
-        layerList[layerIdx].biases += -layerList[layerIdx].dbiases
+        layer = layerList[layerIdx]
+        optimizer.updateLayer(layer)
+    optimizer.updateStep()
 
 #######################################################
 print(" ")
-print("POST-PROCESS") 
-print("Min. Loss: " + str(lossMin) + " found in step " + str(stepMin))
+print("POST-PROCESS")
+networkMinLoss.forward(X)
+networkMinLoss.calculateLoss(y)
+print("Min. Loss: " + str(networkMinLoss.loss) + " found in step " + str(stepMin) + " with accuracy " + str(networkMinLoss.acc))
 
-print(y[0:5])
-print(actList[-1].output[:, 0:5])
+#print(y[0:5])
+#print(actList[-1].output[:, 0:5])
 
 redCode = np.array([255, 0, 0])/255
 greenCode = np.array([0, 128, 0])/255
 blueCode = np.array([0, 0, 255])/255
 
 plt.figure(1)
-yPred = np.argmax(actMin[-1].output, axis=0, keepdims=True)
+yPred = np.argmax(networkMinLoss.yPred, axis=0, keepdims=True)
 for pointIdx in range(X.shape[1]):
     if  yPred[0][pointIdx] == 0:
         plt.scatter(X[0][pointIdx], X[1][pointIdx], color=blueCode)
@@ -98,31 +130,21 @@ for pointIdx in range(X.shape[1]):
         plt.scatter(X[0][pointIdx], X[1][pointIdx], color=redCode)
 plt.title("Reference Data")
 
-def NN(X, layerList, actList):
-    for layerIdx in range(len(layerList)):
-            if layerIdx == 0:
-                layerList[layerIdx].forward(X)
-                actList[layerIdx].forward(layerList[layerIdx].output)
-            else:
-                layerList[layerIdx].forward(actList[layerIdx - 1].output)
-                actList[layerIdx].forward(layerList[layerIdx].output)
-    return actList[-1].output
-
 x1Range = np.arange(-1.5, 1.5, 10e-3)
 x2Range = np.arange(-1.5, 1.5, 10e-3)
 z = np.ones([len(x1Range), len(x2Range), 3])
-x1Idx = 0
-for x1 in x1Range:
-    x2Idx = 0
-    for x2 in x2Range:
+x2Idx = 0
+for x2 in reversed(x2Range):
+    x1Idx = 0
+    for x1 in x1Range:
         xSample = np.array([[x1, x2]]).T
-        yPred = NN(xSample, layerList, actList)
+        networkMinLoss.forward(xSample)
+        yPred = networkMinLoss.yPred
         colorCode = blueCode*yPred[0] + greenCode*yPred[1] + redCode*yPred[2]
-        z[x1Idx, x2Idx, :] = colorCode
-        x2Idx += 1
-    x1Idx += 1
+        z[x2Idx, x1Idx, :] = colorCode
+        x1Idx += 1
+    x2Idx += 1
 print(z.shape)    
-plt.figure(2)
-plt.imshow(z, extent=[x1Range.min(), x1Range.max(), x2Range.min(), x2Range.max()], alpha=0.5)
+plt.imshow(z, extent=[x1Range.min(), x1Range.max(), x2Range.min(), x2Range.max()], alpha=0.5, interpolation="nearest")
 
 plt.show()

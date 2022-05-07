@@ -2,6 +2,8 @@ import numpy as np
 import nnfs
 from nnfs.datasets import spiral_data
 import matplotlib.pyplot as plt
+from matplotlib import colors
+from pyparsing import nums
 
 nnfs.init()
 
@@ -52,6 +54,23 @@ class actSoftmax:                               # softmax activation function (e
             jacobian = np.diagflat(singleOutput) - np.dot(singleOutput, singleOutput.T)
             self.dinputs[:, [sampleIdx]] = np.dot(jacobian.T, singleDVlaues)
 
+class SoftmaxCategorical:
+    def __init__(self):
+        self.act = actSoftmax()
+        self.loss = lossCatCrossEnt()
+    def forward(self, inputs):
+        self.act.forward(inputs)
+        self.output = self.act.output
+    def calculateLoss(self, yTrue):
+        self.lossValue = self.loss.calculate(self.output, yTrue)
+    def backward(self, dvalues, yTrue):
+        numSample = dvalues.shape[1]
+        if len(yTrue.shape) == 2:
+            yTrue = np.argmax(yTrue, axis=0)
+        self.dinputs = dvalues.copy()
+        self.dinputs[yTrue, range(numSample)] -= 1
+        self.dinputs = self.dinputs/numSample
+
 class lossCatCrossEnt:                                     
     def forward(self, yPred, yTrue):            #   categorical cross-entropy
         samples = np.shape(yPred)[1]            #   https://www.youtube.com/watch?v=levekYbxauw&list=PLQVvvaa0QuDcjD5BAw2DxE6OF2tius3V3&index=8
@@ -74,4 +93,109 @@ class lossCatCrossEnt:
         self.dinputs = -yTrue/dvalues
         self.dinputs = self.dinputs/numSample
 
+class optimizerSGD:
+    def __init__(self, initialLearningRate=1, decay=0, momentum=0.9):
+        self.initialLearningRate = initialLearningRate
+        self.learningRate = self.initialLearningRate
+        self.decay = decay
+        self.step = 0
+        self.momentum = momentum
+    def updateLearningRate(self):
+        ratio = 1/(1 + self.decay*self.step)
+        self.learningRate = self.initialLearningRate*ratio
+    def updateLayer(self, layer):
+        if self.momentum:
+            if not hasattr(layer, "weightMomentum"):
+                layer.weightMomentum = np.zeros_like(layer.dweights)
+                layer.biasMomentum = np.zeros_like(layer.dbiases)
+            deltaWeight = -self.learningRate*layer.dweights + self.momentum*layer.weightMomentum
+            deltaBias = -self.learningRate*layer.dbiases + self.momentum*layer.biasMomentum
+            layer.weightMomentum = deltaWeight
+            layer.biasMomentum = deltaBias
+        else:
+            deltaWeight = -self.learningRate*layer.dweights
+            deltaBias = -self.learningRate*layer.dbiases 
+        layer.weights += deltaWeight
+        layer.biases += deltaBias
+    def updateStep(self):
+        self.step += 1
 
+class optimizerAdaGrad:
+    def __init__(self, initialLearningRate=1, decay=0, epsilon=1e-7):
+        self.initialLearningRate = initialLearningRate
+        self.learningRate = self.initialLearningRate
+        self.decay = decay
+        self.step = 0
+        self.epsilon = epsilon
+    def updateLearningRate(self):
+        ratio = 1/(1 + self.decay*self.step)
+        self.learningRate = self.initialLearningRate*ratio
+    def updateLayer(self, layer):
+        if not hasattr(layer, "weightCache"):
+            layer.weightCache = np.zeros_like(layer.dweights)
+            layer.biasCache = np.zeros_like(layer.dbiases)
+        layer.weightCache += layer.dweights**2
+        layer.biasCache += layer.dbiases**2
+        deltaWeight = -self.learningRate*layer.dweights/(np.sqrt(layer.weightCache) + self.epsilon)
+        deltaBias = -self.learningRate*layer.dbiases/(np.sqrt(layer.biasCache) + self.epsilon)
+        layer.weights += deltaWeight
+        layer.biases += deltaBias
+    def updateStep(self):
+        self.step += 1
+
+class optimizerRMSProp:
+    def __init__(self, initialLearningRate=0.0001, decay=0, epsilon=1e-7, rho=0.9):
+        self.initialLearningRate = initialLearningRate
+        self.learningRate = self.initialLearningRate
+        self.decay = decay
+        self.step = 0
+        self.epsilon = epsilon
+        self.rho = rho
+    def updateLearningRate(self):
+        ratio = 1/(1 + self.decay*self.step)
+        self.learningRate = self.initialLearningRate*ratio
+    def updateLayer(self, layer):
+        if not hasattr(layer, "weightCache"):
+            layer.weightCache = np.zeros_like(layer.dweights)
+            layer.biasCache = np.zeros_like(layer.dbiases)
+        layer.weightCache = self.rho*layer.weightCache + (1-self.rho)*layer.dweights**2
+        layer.biasCache = self.rho*layer.biasCache + (1-self.rho)*layer.dbiases**2
+        deltaWeight = -self.learningRate*layer.dweights/(np.sqrt(layer.weightCache) + self.epsilon)
+        deltaBias = -self.learningRate*layer.dbiases/(np.sqrt(layer.biasCache) + self.epsilon)
+        layer.weights += deltaWeight
+        layer.biases += deltaBias
+    def updateStep(self):
+        self.step += 1
+
+class optimizerAdam:
+    def __init__(self, initialLearningRate=0.001, decay=0, epsilon=1e-7, beta1=0.9, beta2 = 0.999):
+        self.initialLearningRate = initialLearningRate
+        self.learningRate = self.initialLearningRate
+        self.decay = decay
+        self.step = 0
+        self.epsilon = epsilon
+        self.beta1 = beta1
+        self.beta2 = beta2
+    def updateLearningRate(self):
+        ratio = 1/(1 + self.decay*self.step)
+        self.learningRate = self.initialLearningRate*ratio
+    def updateLayer(self, layer):
+        if not hasattr(layer, "weightCache"):
+            layer.weightMomentum = np.zeros_like(layer.dweights)
+            layer.weightCache = np.zeros_like(layer.dweights)
+            layer.biasMomentum = np.zeros_like(layer.dbiases)
+            layer.biasCache = np.zeros_like(layer.dbiases)
+        layer.weightMomentum = self.beta1*layer.weightMomentum + (1-self.beta1)*layer.dweights
+        layer.biasMomentum = self.beta1*layer.biasMomentum + (1-self.beta1)*layer.dbiases
+        weightMomentumCorrected = layer.weightMomentum/(1-self.beta1**(self.step+1))
+        biasMomentumCorrected = layer.biasMomentum/(1-self.beta1**(self.step+1))
+        layer.weightCache = self.beta2*layer.weightCache + (1-self.beta2)*layer.dweights**2        
+        layer.biasCache = self.beta2*layer.biasCache + (1-self.beta2)*layer.dbiases**2
+        weightCacheCorrected = layer.weightCache/(1-self.beta2**(self.step+1))
+        biasCacheCorrected = layer.biasCache/(1-self.beta2**(self.step+1))
+        deltaWeight = -self.learningRate*weightMomentumCorrected/(np.sqrt(weightCacheCorrected) + self.epsilon)
+        deltaBias = -self.learningRate*biasMomentumCorrected/(np.sqrt(biasCacheCorrected) + self.epsilon)
+        layer.weights += deltaWeight
+        layer.biases += deltaBias
+    def updateStep(self):
+        self.step += 1
