@@ -1,5 +1,93 @@
+from matplotlib.pyplot import xlabel
 from nnObjs import *
+import sys
 
+
+
+# CATERGORICAL CLASSIFIER
+X, y = spiral_data(samples=1000, classes=3)
+X = np.array(X).T
+y = np.array(y).T
+XVal, yVal = spiral_data(samples=100, classes=2)
+XVal = np.array(XVal).T
+yVal = np.array(yVal).T
+
+model1 = model()
+
+model1.addLayer(layerDense(512, 2, weightRegularizerL2=5e-4, biasRegularizerL2=5e-4))
+model1.addLayer(actReLu())
+model1.addLayer(layerDense(3, 512))
+model1.addLayer(actSoftmax())
+
+model1.set(     loss        =   lossCatCrossEnt(), 
+                optimizer   =   optimizerAdam(initialLearningRate=0.02, decay=1e-5), 
+                accuracy    =   accuracyCategorical())
+
+model1.establish()
+
+#model1.train(X, y, numEpoch=10000, printEvery=100)
+
+model1.validate(XVal, yVal)
+
+#### BINARY LOGISTIC REGRESSION
+X, y = spiral_data(samples=100, classes=2)
+X = np.array(X).T
+y = np.array(y).T
+y.reshape(-1, 1)
+XVal, yVal = spiral_data(samples=100, classes=2)
+XVal = np.array(XVal).T
+yVal = np.array(yVal).T
+yVal.reshape(-1, 1)
+
+model2 = model()
+
+model2.addLayer(layerDense(64, 2, weightRegularizerL2=5e-4, biasRegularizerL2=5e-4))
+model2.addLayer(actReLu())
+model2.addLayer(layerDense(1, 64))
+model2.addLayer(actSigmoid())
+
+model2.set(     loss        =   lossBinCrossEnt(), 
+                optimizer   =   optimizerAdam(decay=5e-7), 
+                accuracy    =   accuracyCategorical())
+
+model2.establish()
+
+#model2.train(X, y, numEpoch=10000, printEvery=100)
+
+model2.validate(XVal, yVal)
+
+# REGRESSION
+X, y = sine_data()
+X = np.array(X).T
+y = np.array(y).T
+
+model3 = model()
+
+model3.addLayer(layerDense(64, 1))
+model3.addLayer(actReLu())
+model3.addLayer(layerDense(64, 64))
+model3.addLayer(actReLu())
+model3.addLayer(layerDense(1, 64))
+model3.addLayer(actLin())
+
+model3.set(     loss        =   lossMeanSquaredError(), 
+                optimizer   =   optimizerAdam(initialLearningRate=0.01, decay=1e-3), 
+                accuracy    =   accuracyRegression())
+
+model3.establish()
+
+model3.train(X, y, numEpoch=10000, printEvery=100)
+
+model3.plotEpoch()
+
+plt.figure()
+plt.plot(X[0, :], y[0, :])
+yPred = model3.forward(X, training=False)
+plt.plot(X[0, :], yPred[0, :])
+plt.grid()
+plt.show()
+###########
+sys.exit()  
 class network:
 
     def __init__(self, layerList, actList, dropoutList):
