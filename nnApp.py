@@ -2,8 +2,6 @@ from matplotlib.pyplot import xlabel
 from nnObjs import *
 import sys
 
-
-
 # CATERGORICAL CLASSIFIER
 X, y = spiral_data(samples=1000, classes=3)
 X = np.array(X).T
@@ -25,7 +23,7 @@ model1.set(     loss        =   lossCatCrossEnt(),
 
 model1.establish()
 
-#model1.train(X, y, numEpoch=10000, printEvery=100)
+model1.train(X, y, numEpoch=10000, printEvery=100)
 
 model1.validate(XVal, yVal)
 
@@ -76,7 +74,7 @@ model3.set(     loss        =   lossMeanSquaredError(),
 
 model3.establish()
 
-model3.train(X, y, numEpoch=10000, printEvery=100)
+#model3.train(X, y, numEpoch=10000, printEvery=100)
 
 model3.plotEpoch()
 

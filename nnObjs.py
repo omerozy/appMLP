@@ -4,6 +4,7 @@ from nnfs.datasets import spiral_data, sine_data
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from pyparsing import nums
+import pickle
 import copy
 
 nnfs.init()
@@ -57,6 +58,13 @@ class layerDense:                               # https://www.youtube.com/watch?
 
         # Gradients on inputs
         self.dinputs = np.dot(self.weight.T, dvalues)
+
+    def getParams(self):
+        return self.weight, self.bias
+
+    def setParams(self, weight, bias):
+        self.weight = weight
+        self.bias = bias
 
 class layerDropout:
     
@@ -145,10 +153,20 @@ class actSigmoid:
 class accuracy:
 
     def calculateAccuracy(self, prediction, y):
-        comparison = self.compare(prediction, y)
-        acc = np.mean(comparison)
+        comparison  = self.compare(prediction, y)
+        acc         = np.mean(comparison)
+        self.accumAcc    += np.sum(comparison)
+        self.accumCount  += comparison.shape[1] 
         return acc
 
+    def calculateAccumAcc(self):
+        acc = self.accumAcc/self.accumCount
+        return acc
+
+    def resetAccumAcc(self):
+        self.accumAcc     = 0
+        self.accumCount   = 0
+        
 class accuracyCategorical(accuracy):
 
     def __init__(self, *, binary=False):
@@ -184,6 +202,8 @@ class loss:
     def calculateOutputLoss(self, output, y):
         lossPerSample = self.forward(output, y)
         outputLoss = np.mean(lossPerSample)
+        self.accumLoss  += np.sum(lossPerSample)
+        self.accumCount += len(lossPerSample)
         return outputLoss
         
     def calculateRegLoss(self):
@@ -204,6 +224,18 @@ class loss:
             return self.calculateOutputLoss(output, y)
         else:
             return self.calculateOutputLoss(output, y), self.calculateRegLoss()
+
+    def calculateAccumLoss(self, *, includeRegLoss=False):
+        outputLoss = self.accumLoss/self.accumCount
+        if not includeRegLoss:
+            return outputLoss
+        else:
+            return outputLoss, self.calculateRegLoss()
+
+    def resetAccumLoss(self):
+        self.accumLoss  = 0
+        self.accumCount  = 0
+
 class lossCatCrossEnt(loss):
 
     def forward(self, yPred, yTrue):            #   categorical cross-entropy
@@ -269,21 +301,7 @@ class lossMeanAbsoluteError(loss):
         self.dinputs = self.dinputs/numSample
 
 class SoftmaxCategorical:
-    """""
-    def __init__(self):
-        self.act = actSoftmax()
-        self.loss = lossCatCrossEnt()
 
-    def forward(self, inputs):
-        self.act.forward(inputs)
-        self.output = self.act.output
-
-    def calculateOutputLoss(self, yTrue):
-        self.outputLoss = self.loss.calculateOutputLoss(self.output, yTrue)
-
-    def calculateRegLoss(self, layer):
-        return self.loss.calculateRegLoss(layer)
-    """""
     def backward(self, dvalues, yTrue):
         numSample = dvalues.shape[1]
         if len(yTrue.shape) == 2:
@@ -428,10 +446,16 @@ class model:
     def addLayer(self, layer):
         self.layers.append(layer)
 
-    def set(self, *, loss, optimizer, accuracy):
-        self.loss = loss
-        self.optimizer = optimizer
-        self.accuracy = accuracy
+    def set(self, *, loss=None, optimizer=None, accuracy=None):
+
+        if loss is not None:
+            self.loss = loss
+
+        if optimizer is not None:
+            self.optimizer = optimizer
+
+        if accuracy is not None:
+            self.accuracy = accuracy
 
     def establish(self):
 
@@ -457,60 +481,117 @@ class model:
             if hasattr(self.layers[layerIdx], "weight"):
                 self.trainableLayers.append(self.layers[layerIdx])
         
-        self.loss.keepTrainableLayers(self.trainableLayers)
+        if self.loss is not None:
+            self.loss.keepTrainableLayers(self.trainableLayers)
 
-    def train(self, X, y, *, numEpoch=1, printEvery=1):
+    def train(self, X, y, *, numEpoch=1, batchSize=None, printEvery=1):
 
-        self.lossHist = []
-        self.accHist = []
-        self.lrHist = []
-        self.epochHist = []
+        self.lossHist   = []
+        self.accHist    = []
+        self.lrHist     = []
+        self.epochHist  = []
 
         self.accuracy.init(y)
-        
-        for epoch in range(1, numEpoch+1):
 
-            output = self.forward(X, training=True)
+        for epoch in range(1, numEpoch+1):
             
-            outputLoss, regLoss = self.loss.calculateLoss(output, y, includeRegLoss=True)
-            loss = outputLoss + regLoss
+            if batchSize is None:
+                numStep = 1
+            else:
+                numStep = X.shape[1] // batchSize
+                if numStep*batchSize < X.shape[1]:
+                    numStep += 1
+
+            self.loss.resetAccumLoss()
+            self.accuracy.resetAccumAcc()
+
+            for step in range(numStep):
+                
+                if batchSize is None:
+                    batchX = X
+                    batchy = y
+                else:
+                    batchX = X[:, step*batchSize:(step+1)*batchSize]
+                    batchy = y[step*batchSize:(step+1)*batchSize]
+
+                output = self.forward(batchX, training=True)
+                
+                outputLoss, regLoss = self.loss.calculateLoss(output, batchy, includeRegLoss=True)
+                loss = outputLoss + regLoss
+
+                prediction = self.outputLayerActivation.prediction(output)
+                acc = self.accuracy.calculateAccuracy(prediction, batchy)
+
+                self.backward(output, batchy)
+                
+                self.optimizer.updateLearningRate()
+                for layer in self.trainableLayers:
+                    self.optimizer.updateLayer(layer)
+                self.optimizer.updateStep()
+
+                if not step % printEvery or step == numStep - 1:
+                    print(  "  " +
+                            f"epoch: {epoch}, " +
+                            f"step: {step}, " + 
+                            f"acc: {acc:.3f}, " + 
+                            f"loss: {loss:.3f}, " + 
+                            f"outputLoss: {outputLoss:.3f}, " + 
+                            f"regLoss: {regLoss:.3f}, " + 
+                            f"lr: {self.optimizer.learningRate:.3f}"
+                            )
+                    
+            epochOutputLoss, epochRegLoss = self.loss.calculateAccumLoss(includeRegLoss=True)
+            epochLoss = epochOutputLoss + epochRegLoss
+            epochAcc = self.accuracy.calculateAccumAcc()
+
+            print(  f"EPOCH: {epoch}, -->" +
+                    f"acc: {epochAcc:.3f}, " + 
+                    f"loss: {epochLoss:.3f}, " + 
+                    f"outputLoss: {epochOutputLoss:.3f}, " + 
+                    f"regLoss: {epochRegLoss:.3f}, " + 
+                    f"lr: {self.optimizer.learningRate:.3f}"
+                    )    
+
+            self.lossHist.  append  (epochLoss                  )
+            self.accHist.   append  (epochAcc                   )
+            self.lrHist.    append  (self.optimizer.learningRate)
+            self.epochHist. append  (epoch                      )    
+
+    def validate(self, XVal, yVal, batchSize=None):
+
+        if batchSize is None:
+            numStep = 1
+        else:
+            numStep = XVal.shape[1] // batchSize
+            if numStep*batchSize < XVal.shape[1]:
+                numStep += 1
+
+        self.loss.resetAccumLoss()
+        self.accuracy.resetAccumAcc()
+
+        for step in range(numStep):
+                
+            if batchSize is None:
+                batchXVal = XVal
+                batchyVal = yVal
+            else:
+                batchXVal = XVal[:, step*batchSize:(step+1)*batchSize]
+                batchyVal = yVal[step*batchSize:(step+1)*batchSize]
+
+            output = self.forward(batchXVal, training=False)
+                
+            outputLoss = self.loss.calculateLoss(output, batchyVal)
+            loss = outputLoss
 
             prediction = self.outputLayerActivation.prediction(output)
-            acc = self.accuracy.calculateAccuracy(prediction, y)
-            
-            self.lossHist.append(loss)
-            self.accHist.append(acc)
-            self.lrHist.append(self.optimizer.learningRate)
-            self.epochHist.append(epoch)
+            acc = self.accuracy.calculateAccuracy(prediction, batchyVal)
 
-            self.backward(output, y)
-            
-            self.optimizer.updateLearningRate()
-            for layer in self.trainableLayers:
-                self.optimizer.updateLayer(layer)
-            self.optimizer.updateStep()
-
-            if not epoch % printEvery:
-                print(  f"epoch: {epoch}, " + 
-                        f"acc: {acc:.3f}, " + 
-                        f"loss: {loss:.3f}, " + 
-                        f"outputLoss: {outputLoss:.3f}, " + 
-                        f"regLoss: {regLoss:.3f}, " + 
-                        f"lr: {self.optimizer.learningRate:.3f}"
-                        )
-                        
-    def validate(self, XVal, yVal):
-        output = self.forward(XVal, training=False)
-            
-        outputLoss = self.loss.calculateLoss(output, yVal)
-        loss = outputLoss
-
-        prediction = self.outputLayerActivation.prediction(output)
-        acc = self.accuracy.calculateAccuracy(prediction, yVal)
+        valLoss = self.loss.calculateAccumLoss()
+        valAcc = self.accuracy.calculateAccumAcc()
 
         print(  f"validation, " + 
-                f"acc: {acc:.3f}, " + 
-                f"loss: {loss:.3f}" )
+                f"acc: {valAcc:.3f}, " + 
+                f"loss: {valLoss:.3f}" )
 
     def forward(self, X, training):
 
@@ -526,9 +607,9 @@ class model:
 
         if isinstance(self.layers[-1], actSoftmax) and isinstance(self.loss, lossCatCrossEnt):
 
-            self.softmaxCategorical = SoftmaxCategorical()
-            self.softmaxCategorical.backward(output, y)
-            self.layers[-1].dinputs = self.softmaxCategorical.dinputs
+            softmaxCategorical = SoftmaxCategorical()
+            softmaxCategorical.backward(output, y)
+            self.layers[-1].dinputs = softmaxCategorical.dinputs
 
             for layer in reversed(self.layers[0:-1]):
 
@@ -559,3 +640,73 @@ class model:
         plt.xlabel("Epoch")
         plt.ylabel("Learning rate")
         plt.grid()
+
+    def getParams(self):
+        
+        params = []
+
+        for layer in self.trainableLayers:
+
+            params.append(layer.getParams())
+
+        return params
+    
+    def setParams(self, params):
+
+        for paramSet, layer in zip(params, self.trainableLayers):
+            layer.setParams(*paramSet)
+
+    def saveParams(self, path):
+        
+        with open(path, "wb") as f:
+            pickle.dump(self.getParams(), f)
+
+    def loadParams(self, path):
+        with open(path, "rb") as f:
+            self.setParams(pickle.load(f))
+
+    def saveModel(self, path):
+
+        modelCopy = copy.deepcopy(self)
+
+        modelCopy.loss.resetAccumLoss()
+        modelCopy.accuracy.resetAccumAcc()
+        
+        modelCopy.layerInput.__dict__.pop("output", None)
+        modelCopy.loss.__dict__.pop("dinputs", None)
+
+        for layer in modelCopy.layers:
+            for property in ["inputs", "output", "dweight", "dbias", "dinputs"]:
+                layer.__dict__.pop(property, None)
+
+        with open(path, "wb") as f:
+            pickle.dump(modelCopy, f)
+
+    @staticmethod
+    def load(path):
+        with open(path, "rb") as f:
+            return pickle.load(f)
+
+    def predict(self, X, *, batchSize=None):
+        
+        if batchSize is None:
+            numStep = 1
+        else:
+            numStep = X.shape[1] // batchSize
+            if numStep*batchSize < X.shape[1]:
+                numStep += 1
+
+        output = []
+
+        for step in range(numStep):
+
+            if batchSize is None:
+                batchX = X
+            else:
+                batchX = X[:, step*batchSize:(step+1)*batchSize]
+
+            batchOutput = self.forward(batchX, training=False)
+
+            output.append(batchOutput)
+
+        return np.hstack(output)
