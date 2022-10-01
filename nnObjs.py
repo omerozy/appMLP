@@ -544,13 +544,13 @@ class model:
             epochLoss = epochOutputLoss + epochRegLoss
             epochAcc = self.accuracy.calculateAccumAcc()
 
-            print(  f"EPOCH: {epoch}, -->" +
-                    f"acc: {epochAcc:.3f}, " + 
-                    f"loss: {epochLoss:.3f}, " + 
-                    f"outputLoss: {epochOutputLoss:.3f}, " + 
-                    f"regLoss: {epochRegLoss:.3f}, " + 
-                    f"lr: {self.optimizer.learningRate:.3f}"
-                    )    
+            #print(  f"EPOCH: {epoch}, -->" +
+            #        f"acc: {epochAcc:.3f}, " + 
+            #        f"loss: {epochLoss:.3f}, " + 
+            #        f"outputLoss: {epochOutputLoss:.3f}, " + 
+            #        f"regLoss: {epochRegLoss:.3f}, " + 
+            #        f"lr: {self.optimizer.learningRate:.3f}"
+            #        )    
 
             self.lossHist.  append  (epochLoss                  )
             self.accHist.   append  (epochAcc                   )
